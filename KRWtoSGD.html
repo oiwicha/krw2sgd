@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time KRW to SGD Converter</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 90vh;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .converter-container {
+            background-color: #fff;
+            padding: 30px 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .input-group label {
+            font-weight: bold;
+            margin-right: 10px;
+            min-width: 50px; /* Ensures labels align nicely */
+            text-align: right;
+            color: #555;
+        }
+        .input-group input[type="number"] {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1.1em;
+            box-sizing: border-box; /* Important for padding and width */
+            -moz-appearance: textfield; /* Removes spinners in Firefox */
+        }
+        .input-group input[type="number"]::-webkit-inner-spin-button,
+        .input-group input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none; /* Removes spinners in Chrome/Safari/Edge */
+            margin: 0;
+        }
+        .rate-info {
+            margin-top: 25px;
+            font-size: 0.9em;
+            color: #777;
+        }
+        .rate-info p {
+            margin: 5px 0;
+        }
+        .rate-info strong {
+            color: #e74c3c; /* A distinct color for the rate */
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+        .loading-message {
+            color: #3498db;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="converter-container">
+        <h1>KRW ⇌ SGD Converter</h1>
+
+        <div class="input-group">
+            <label for="krw">KRW:</label>
+            <input type="number" id="krw" placeholder="Enter KRW amount" step="any" min="0">
+        </div>
+
+        <div class="input-group">
+            <label for="sgd">SGD:</label>
+            <input type="number" id="sgd" placeholder="Enter SGD amount" step="any" min="0">
+        </div>
+
+        <div class="rate-info">
+            <p id="loading-message" class="loading-message">Fetching latest rate...</p>
+            <p id="error-message" class="error-message" style="display: none;"></p>
+            <p>Current Rate: <strong id="current-rate">N/A</strong></p>
+            <p>1 KRW = <span id="krw-to-sgd-rate">?</span> SGD</p>
+            <p>1 SGD = <span id="sgd-to-krw-rate">?</span> KRW</p>
+            <p>Last Updated: <span id="last-updated">N/A</span></p>
+        </div>
+    </div>
+
+    <script>
+        const krwInput = document.getElementById('krw');
+        const sgdInput = document.getElementById('sgd');
+        const currentRateDisplay = document.getElementById('current-rate');
+        const krwToSgdRateDisplay = document.getElementById('krw-to-sgd-rate');
+        const sgdToKrwRateDisplay = document.getElementById('sgd-to-krw-rate');
+        const lastUpdatedDisplay = document.getElementById('last-updated');
+        const loadingMessage = document.getElementById('loading-message');
+        const errorMessage = document.getElementById('error-message');
+
+        let krwToSgdRate = null;
+        const API_URL = 'https://api.frankfurter.app/latest?from=KRW&to=SGD';
+        const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+        async function fetchExchangeRate() {
+            loadingMessage.style.display = 'block';
+            errorMessage.style.display = 'none';
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (data && data.rates && data.rates.SGD) {
+                    krwToSgdRate = data.rates.SGD;
+                    currentRateDisplay.textContent = `1 KRW = ${krwToSgdRate.toFixed(5)} SGD`;
+                    krwToSgdRateDisplay.textContent = `${krwToSgdRate.toFixed(5)}`;
+                    sgdToKrwRateDisplay.textContent = `${(1 / krwToSgdRate).toFixed(2)}`; // Usually KRW is a larger number
+                    lastUpdatedDisplay.textContent = new Date(data.date + 'T00:00:00Z').toLocaleString(); // API date is YYYY-MM-DD
+                    loadingMessage.style.display = 'none';
+
+                    // If inputs have values, re-calculate with the new rate
+                    if (krwInput.value) {
+                        convertKrwToSgd();
+                    } else if (sgdInput.value) {
+                        convertSgdToKrw();
+                    }
+
+                } else {
+                    throw new Error('Invalid data received from API.');
+                }
+            } catch (error) {
+                console.error('Failed to fetch exchange rate:', error);
+                krwToSgdRate = null; // Invalidate rate on error
+                currentRateDisplay.textContent = 'Error fetching rate';
+                krwToSgdRateDisplay.textContent = 'N/A';
+                sgdToKrwRateDisplay.textContent = 'N/A';
+                lastUpdatedDisplay.textContent = new Date().toLocaleString();
+                errorMessage.textContent = `Error: ${error.message}. Please try again later.`;
+                errorMessage.style.display = 'block';
+                loadingMessage.style.display = 'none';
+            }
+        }
+
+        function convertKrwToSgd() {
+            if (!krwToSgdRate) return;
+            const krwAmount = parseFloat(krwInput.value);
+            if (!isNaN(krwAmount)) {
+                sgdInput.value = (krwAmount * krwToSgdRate).toFixed(2); // SGD usually to 2 decimal places
+            } else if (krwInput.value === "") {
+                sgdInput.value = "";
+            }
+        }
+
+        function convertSgdToKrw() {
+            if (!krwToSgdRate) return;
+            const sgdAmount = parseFloat(sgdInput.value);
+            if (!isNaN(sgdAmount)) {
+                krwInput.value = (sgdAmount / krwToSgdRate).toFixed(0); // KRW usually whole numbers
+            } else if (sgdInput.value === "") {
+                krwInput.value = "";
+            }
+        }
+
+        // Event Listeners
+        krwInput.addEventListener('input', () => {
+            if (document.activeElement === krwInput) { // Only convert if this input is focused
+                 convertKrwToSgd();
+            }
+        });
+
+        sgdInput.addEventListener('input', () => {
+            if (document.activeElement === sgdInput) { // Only convert if this input is focused
+                convertSgdToKrw();
+            }
+        });
+
+        // Initial fetch and set up interval
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchExchangeRate();
+            setInterval(fetchExchangeRate, REFRESH_INTERVAL);
+        });
+    </script>
+
+</body>
+</html>
